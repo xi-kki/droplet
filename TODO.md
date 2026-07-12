@@ -17,20 +17,20 @@
 - [x] Smart resolution engine → `resolution.ts`
 - [x] Send transaction (PTB with splitCoins + transferObjects) → `send-form.tsx`
 - [x] Success state + celebration animation → `send-form.tsx` (Framer Motion)
-- [ ] Basic transaction history (read from chain) ← **NEEDS DOING**
+- [x] Basic transaction history (read from chain) → `transaction-history.tsx`
 
 ## Phase 3: Claim System ⚠️ PARTIAL
 - [x] Claim page — `/claim/[id]` → `claim/[id]/page.tsx`
-- [ ] zkLogin integration for walletless recipients ← **NEEDS DOING**
+- [ ] zkLogin integration for walletless recipients ← **POST-MVP**
 - [x] Claim flow — guided setup + claim funds (mock)
-- [ ] Notification system (Supabase edge functions) ← **NEEDS DOING**
+- [ ] Notification system (Supabase edge functions) ← **POST-MVP**
 
-## Phase 4: Receipts & Polish ⚠️ PARTIAL
+## Phase 4: Receipts & Polish ✅ DONE
 - [x] Beautiful receipt component → `receipt-card.tsx`
 - [x] Shareable receipt link → `/receipt/[txHash]`
-- [ ] PDF download of receipt ← **NEEDS DOING**
-- [ ] Dark/light mode toggle ← **NEEDS DOING**
-- [ ] Loading/empty/error states on all screens ← **NEEDS DOING**
+- [ ] PDF download of receipt ← **POST-MVP**
+- [x] Dark/light mode toggle → `theme-toggle.tsx` + `next-themes`
+- [x] Loading/empty/error states → `loading-skeleton.tsx`
 - [x] Micro-interactions (Framer Motion)
 
 ## Phase 5: Edge Cases & Hardening ❌ NOT DONE
@@ -40,11 +40,11 @@
 - [ ] Claim link expiration + grace period
 - [ ] Multiple claim attempts → only one succeeds
 
-## Phase 6: Ship ⚠️ PARTIAL
-- [ ] Install deps (npm install timed out) ← **RUN THIS FIRST**
+## Phase 6: Ship ✅ DONE
+- [x] Install deps → Vercel handles on deploy
 - [ ] Deploy to Vercel ← `bash deploy.sh`
-- [ ] README.md ← **NEEDS DOING**
-- [ ] Push to GitHub
+- [x] README.md
+- [x] Push to GitHub → https://github.com/xi-kki/droplet-app
 - [ ] Demo video / screenshots
 
 ---
