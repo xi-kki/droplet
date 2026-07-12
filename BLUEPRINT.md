@@ -99,7 +99,7 @@ POST: View Receipt → Share Link → Download PDF
 ## 6. Project Structure
 
 ```
-droplet-app/
+droplet/
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx          # Root layout + providers

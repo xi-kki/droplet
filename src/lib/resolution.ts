@@ -1,6 +1,7 @@
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 import { normalizeSuiAddress } from "@mysten/sui/utils";
 import { detectRecipientType, isValidSuiAddress } from "./utils";
+import { lookupResolution } from "./supabase";
 import type { ResolvedRecipient, RecipientType } from "@/types";
 
 const client = new SuiClient({ url: getFullnodeUrl("testnet") });
@@ -67,19 +68,21 @@ async function resolveSuiName(name: string): Promise<ResolvedRecipient> {
   };
 }
 
-/** Resolve email via Supabase lookup */
+/** Resolve email via Supabase lookup, falls back to mock for demo */
 async function resolveEmail(email: string): Promise<ResolvedRecipient> {
-  // TODO: Replace with real Supabase lookup
-  // const { data } = await supabase
-  //   .from("resolutions")
-  //   .select("sui_address")
-  //   .eq("identifier", email.toLowerCase())
-  //   .eq("type", "email")
-  //   .single();
+  // Try real Supabase lookup first
+  const realAddress = await lookupResolution(email, "email");
+  if (realAddress) {
+    return {
+      type: "email",
+      input: email,
+      suiAddress: realAddress,
+      displayName: email.split("@")[0],
+    };
+  }
 
-  // For MVP demo — generate deterministic address from email
+  // Fallback: generate deterministic address for demo
   const mockAddress = generateMockAddress(email);
-
   return {
     type: "email",
     input: email,
@@ -88,14 +91,23 @@ async function resolveEmail(email: string): Promise<ResolvedRecipient> {
   };
 }
 
-/** Resolve phone via Supabase lookup */
+/** Resolve phone via Supabase lookup, falls back to mock for demo */
 async function resolvePhone(phone: string): Promise<ResolvedRecipient> {
-  // Normalize phone: remove spaces, dashes, etc.
   const normalized = phone.replace(/[\s\-()]/g, "");
 
-  // TODO: Replace with real Supabase lookup
-  const mockAddress = generateMockAddress(normalized);
+  // Try real Supabase lookup first
+  const realAddress = await lookupResolution(normalized, "phone");
+  if (realAddress) {
+    return {
+      type: "phone",
+      input: normalized,
+      suiAddress: realAddress,
+      displayName: normalized.slice(-4),
+    };
+  }
 
+  // Fallback: generate deterministic address for demo
+  const mockAddress = generateMockAddress(normalized);
   return {
     type: "phone",
     input: normalized,

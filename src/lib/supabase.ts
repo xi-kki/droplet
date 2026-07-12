@@ -1,9 +1,18 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+/** Supabase client — null if env vars not configured (demo mode) */
+export const supabase: SupabaseClient | null =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
+
+/** Check if Supabase is configured */
+export function isSupabaseConfigured(): boolean {
+  return supabase !== null;
+}
 
 // ============================================================
 // Resolution Functions
@@ -11,12 +20,14 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
  * Look up a Sui address by email, phone, or .sui name.
- * Returns null if not found.
+ * Returns null if not found or if Supabase is not configured.
  */
 export async function lookupResolution(
   identifier: string,
   type: "email" | "phone" | "sui"
 ): Promise<string | null> {
+  if (!supabase) return null;
+
   const { data } = await supabase
     .from("resolutions")
     .select("sui_address")
@@ -35,6 +46,8 @@ export async function saveResolution(
   type: "email" | "phone" | "sui",
   suiAddress: string
 ): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+
   await supabase.from("resolutions").upsert(
     {
       identifier: identifier.toLowerCase(),
@@ -65,6 +78,8 @@ export interface CreateClaimParams {
 export async function createClaim(
   params: CreateClaimParams
 ): Promise<string> {
+  if (!supabase) throw new Error("Supabase not configured");
+
   const claimToken = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
@@ -89,6 +104,8 @@ export async function createClaim(
  * Look up a claim by its token.
  */
 export async function getClaimByToken(claimToken: string) {
+  if (!supabase) throw new Error("Supabase not configured");
+
   const { data, error } = await supabase
     .from("pending_claims")
     .select("*")
@@ -106,6 +123,8 @@ export async function markClaimed(
   claimToken: string,
   claimerAddress: string
 ): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase not configured");
+
   const { data, error } = await supabase.rpc("claim_droplet", {
     p_claim_token: claimToken,
     p_claimer_address: claimerAddress,
@@ -119,6 +138,8 @@ export async function markClaimed(
  * Get all claims for a sender (transaction history).
  */
 export async function getSenderClaims(senderAddress: string) {
+  if (!supabase) return [];
+
   const { data, error } = await supabase
     .from("pending_claims")
     .select("*")
@@ -133,6 +154,8 @@ export async function getSenderClaims(senderAddress: string) {
  * Get all claims for a recipient.
  */
 export async function getRecipientClaims(recipientAddress: string) {
+  if (!supabase) return [];
+
   const { data, error } = await supabase
     .from("pending_claims")
     .select("*")

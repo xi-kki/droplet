@@ -61,8 +61,7 @@ export function TransactionHistory() {
       });
 
       setTransactions(txs);
-    } catch (err) {
-      console.error("Failed to fetch transactions:", err);
+    } catch {
       setError("Failed to load transaction history. Please try again.");
     } finally {
       setLoading(false);

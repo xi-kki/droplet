@@ -41,8 +41,8 @@ Droplet eliminates the friction of sending crypto. Instead of copying long walle
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/droplet-app.git
-cd droplet-app
+git clone https://github.com/xi-kki/droplet.git
+cd droplet
 
 # Install dependencies
 npm install
@@ -95,7 +95,7 @@ SENDER                              RECIPIENT
 ## Project Structure
 
 ```
-droplet-app/
+droplet/
 ├── src/
 │   ├── app/              # Next.js pages
 │   │   ├── page.tsx      # Home + send form

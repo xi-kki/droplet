@@ -1,8 +1,6 @@
 "use client";
 
-import { useWalletClient } from "@mysten/dapp-kit";
 import { ConnectButton } from "@mysten/dapp-kit";
-import { formatAddress } from "@/lib/utils";
 
 export function WalletButton() {
   return (

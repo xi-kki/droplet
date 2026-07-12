@@ -134,7 +134,6 @@ export function SendForm() {
         amount: amountNum.toFixed(4),
       });
     } catch (err: any) {
-      console.error("Send failed:", err);
       setState("error");
       setError(
         err?.message?.includes("User rejected")
