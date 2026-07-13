@@ -112,7 +112,7 @@ export function SendForm() {
       txb.transferObjects([coin], resolved.suiAddress);
 
       // Set gas budget
-      txb.setGasBudget("100_000_000");
+      txb.setGasBudget(100_000_000);
 
       // Sign and execute
       const { bytes, signature, digest } = await signTransaction({
