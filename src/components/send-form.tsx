@@ -32,6 +32,8 @@ type SendState =
   | "success"
   | "error";
 
+const HIGH_VALUE_THRESHOLD = 50; // SUI
+
 interface SendResult {
   txDigest: string;
   claimUrl: string;
@@ -86,6 +88,12 @@ export function SendForm() {
       return;
     }
 
+    // High-value confirmation
+    if (amountNum >= HIGH_VALUE_THRESHOLD && state !== "confirming") {
+      setState("confirming");
+      return;
+    }
+
     try {
       // Step 1: Resolve recipient
       setState("resolving");
@@ -135,13 +143,18 @@ export function SendForm() {
       });
     } catch (err: any) {
       setState("error");
-      setError(
-        err?.message?.includes("User rejected")
-          ? "Transaction cancelled"
-          : "Transaction failed. Please try again."
-      );
+      const msg = err?.message || "";
+      if (msg.includes("User rejected") || msg.includes("denied")) {
+        setError("Transaction cancelled by user");
+      } else if (msg.includes("insufficient")) {
+        setError("Insufficient SUI balance for this transaction");
+      } else if (msg.includes("timeout") || msg.includes("TIMEOUT")) {
+        setError("Transaction timed out — please try again");
+      } else {
+        setError("Transaction failed. Please try again.");
+      }
     }
-  }, [currentAccount, recipient, amount, note, signTransaction]);
+  }, [currentAccount, recipient, amount, note, signTransaction, state]);
 
   const copyClaimLink = () => {
     if (result?.claimUrl) {
@@ -150,6 +163,45 @@ export function SendForm() {
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  // CONFIRMATION STATE (high-value)
+  if (state === "confirming") {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="p-6 space-y-6"
+      >
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/10 flex items-center justify-center">
+            <AlertCircle className="h-8 w-8 text-yellow-500" />
+          </div>
+          <h3 className="text-xl font-bold mb-2">Confirm high-value send</h3>
+          <p className="text-muted-foreground">
+            You&apos;re about to send <strong>{parseFloat(amount).toFixed(4)} SUI</strong> to <strong>{recipient}</strong>
+          </p>
+          <p className="text-xs text-yellow-500 mt-2">
+            This transaction cannot be undone. Please verify the recipient is correct.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => setState("idle")}
+          >
+            Cancel
+          </Button>
+          <Button
+            className="flex-1"
+            onClick={() => handleSend()}
+          >
+            Confirm Send
+          </Button>
+        </div>
+      </motion.div>
+    );
+  }
 
   // SUCCESS STATE
   if (state === "success" && result) {
@@ -297,7 +349,13 @@ export function SendForm() {
             className="flex items-center gap-2 text-sm text-red-500 bg-red-500/10 rounded-lg p-3"
           >
             <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
+            <span className="flex-1">{error}</span>
+            <button
+              onClick={() => setState("idle")}
+              className="text-xs underline hover:no-underline"
+            >
+              Retry
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

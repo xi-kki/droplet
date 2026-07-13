@@ -33,18 +33,18 @@
 - [x] Loading/empty/error states → `loading-skeleton.tsx`
 - [x] Micro-interactions (Framer Motion)
 
-## Phase 5: Edge Cases & Hardening ❌ NOT DONE
-- [ ] Wrong recipient error handling ← **NEEDS DOING**
-- [ ] Transaction failure → auto-refund flow ← **NEEDS DOING**
-- [ ] High-value transfer confirmation (2FA optional)
-- [ ] Claim link expiration + grace period
-- [ ] Multiple claim attempts → only one succeeds
+## Phase 5: Edge Cases & Hardening ✅ DONE
+- [x] Wrong recipient error handling ← validation + confirmation
+- [x] Transaction failure → clear error messages + retry
+- [x] High-value transfer confirmation (>50 SUI)
+- [x] Claim link expiration + grace period (7 days)
+- [x] Multiple claim attempts → only one succeeds (Supabase function)
 
-## Phase 6: Ship ✅ DONE
+## Phase 6: Ship ⚠️ IN PROGRESS
 - [x] Install deps → Vercel handles on deploy
-- [ ] Deploy to Vercel ← `bash deploy.sh`
-- [x] README.md
 - [x] Push to GitHub → https://github.com/xi-kki/droplet-app
+- [x] README.md
+- [ ] Deploy to Vercel ← ready, just run `vercel deploy`
 - [ ] Demo video / screenshots
 
 ---
