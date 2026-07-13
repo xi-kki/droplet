@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="dropGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00D4FF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="rippleGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00D4FF;stop-opacity:0.8" />
+      <stop offset="50%" style="stop-color:#7C3AED;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#10B981;stop-opacity:0.4" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="95" fill="#0F172A" stroke="url(#rippleGradient)" stroke-width="2"/>
+  
+  <!-- Ripple circles (expanding from impact point) -->
+  <ellipse cx="100" cy="120" rx="30" ry="8" fill="none" stroke="url(#rippleGradient)" stroke-width="1.5" opacity="0.3"/>
+  <ellipse cx="100" cy="120" rx="50" ry="12" fill="none" stroke="url(#rippleGradient)" stroke-width="1.5" opacity="0.2"/>
+  <ellipse cx="100" cy="120" rx="70" ry="16" fill="none" stroke="url(#rippleGradient)" stroke-width="1.5" opacity="0.1"/>
+  
+  <!-- Splash crown -->
+  <path d="M85 115 Q88 105 92 112 Q95 100 100 110 Q105 95 108 112 Q112 105 115 115" 
+        fill="none" stroke="#00D4FF" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+  
+  <!-- Main droplet -->
+  <path d="M100 45 
+           Q100 45 100 45
+           C100 45 75 85 75 105
+           Q75 125 100 135
+           Q125 125 125 105
+           C125 85 100 45 100 45 Z" 
+        fill="url(#dropGradient)" filter="url(#glow)"/>
+  
+  <!-- Highlight on droplet -->
+  <ellipse cx="92" cy="85" rx="8" ry="12" fill="white" opacity="0.4" transform="rotate(-15 92 85)"/>
+  
+  <!-- Small splash droplets -->
+  <circle cx="78" cy="108" r="4" fill="#00D4FF" opacity="0.7"/>
+  <circle cx="122" cy="108" r="3" fill="#7C3AED" opacity="0.7"/>
+  <circle cx="70" cy="118" r="2" fill="#10B981" opacity="0.6"/>
+  <circle cx="130" cy="118" r="2.5" fill="#00D4FF" opacity="0.6"/>
+  
+  <!-- Text: DROPLET -->
+  <text x="100" y="165" text-anchor="middle" 
+        font-family="Inter, system-ui, sans-serif" 
+        font-size="18" 
+        font-weight="700"
+        fill="white"
+        letter-spacing="3">DROPLET</text>
+  
+  <!-- Tagline -->
+  <text x="100" y="180" text-anchor="middle" 
+        font-family="Inter, system-ui, sans-serif" 
+        font-size="8" 
+        font-weight="400"
+        fill="#00D4FF"
+        letter-spacing="1">SEND TO ANYONE</text>
+</svg>
