@@ -246,13 +246,18 @@ async function resolvePhone(phone: string): Promise<ResolvedRecipient> {
  * In production, this would come from actual lookups.
  */
 function generateMockAddress(input: string): string {
-  // Simple hash for demo — NOT cryptographically secure
-  let hash = 0;
+  // Generate a valid 64-hex-char Sui address deterministically
+  let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
-    const char = input.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
   }
-  const hex = Math.abs(hash).toString(16).padStart(64, "0");
-  return `0x${hex}`;
+  // Build a 64-char hex string from repeated hashing
+  const segments: string[] = [];
+  let seed = hash;
+  while (segments.join("").length < 64) {
+    seed = Math.imul(seed, 0x811c9dc5) ^ 0xdeadbeef;
+    segments.push(Math.abs(seed).toString(16).padStart(8, "0"));
+  }
+  return `0x${segments.join("").slice(0, 64)}`;
 }

@@ -44,14 +44,46 @@ export function TransactionHistory() {
       });
 
       const txs: ReceiptData[] = response.data.map((tx) => {
-        // Parse transaction data to extract transfer info
-        // For MVP, we show basic info from the transaction
+        // Parse transaction effects to extract transfer details
+        let recipientAddress = "";
+        let amountMist = "0";
+
+        if (tx.effects) {
+          // Try to extract from balanceChanges
+          const balanceChanges = (tx.effects as any).balanceChanges || [];
+          for (const change of balanceChanges) {
+            if (
+              change.coinType === "0x2::sui::SUI" &&
+              change.address !== currentAccount.address
+            ) {
+              recipientAddress = change.address;
+              // Positive balance change for recipient = amount sent
+              const amount = BigInt(change.amount || "0");
+              if (amount > 0n) {
+                amountMist = amount.toString();
+              }
+            }
+          }
+
+          // Fallback: try to parse from transactionBlock if available
+          if (!recipientAddress && (tx as any).transactionBlock) {
+            const tb = (tx as any).transactionBlock;
+            if (tb.transactions) {
+              for (const t of tb.transactions) {
+                if (t.TransferObjects && t.TransferObjects[0]) {
+                  recipientAddress = t.TransferObjects[1] || "";
+                }
+              }
+            }
+          }
+        }
+
         return {
           txDigest: tx.digest,
           senderAddress: currentAccount.address,
-          recipientAddress: "", // Would need to parse effects
+          recipientAddress,
           recipientDisplayName: "",
-          amountMist: "0", // Would need to parse coin changes
+          amountMist: amountMist || "0",
           coinType: "0x2::sui::SUI",
           timestamp: tx.timestampMs
             ? parseInt(tx.timestampMs)

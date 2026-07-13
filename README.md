@@ -70,6 +70,16 @@ NEXT_PUBLIC_SUI_NETWORK=testnet
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
+### Supabase Setup
+
+Run the SQL in `supabase/schema.sql` in your Supabase SQL Editor to create the required tables:
+
+1. `resolutions` — maps email/phone/.sui → Sui address
+2. `pending_claims` — tracks sent but unclaimed droplets
+3. `notifications` — tracks sent notifications
+4. RLS policies for secure access
+5. RPC functions: `claim_droplet()`, `is_claim_valid()`
+
 ## How It Works
 
 ```
@@ -106,6 +116,8 @@ droplet/
 │   └── types/            # TypeScript types
 ├── contracts/
 │   └── droplet_vault/    # Move smart contract
+├── supabase/
+│   └── schema.sql        # Database schema
 └── public/               # Static assets
 ```
 
@@ -113,19 +125,26 @@ droplet/
 
 The Move contract (`contracts/droplet_vault/`) implements:
 
-- **deposit()** — Sender deposits funds into escrow
-- **claim()** — Recipient withdraws their funds
+- **deposit()** — Sender registers a pending transfer
+- **claim()** — Recipient marks funds as claimed
 - **refund()** — Sender reclaims expired, unclaimed funds
+
+Events are emitted for indexing and tracking.
 
 ## Roadmap
 
 - [x] Wallet connection
 - [x] Send form with recipient resolution
 - [x] Claim flow
-- [x] Receipt component
+- [x] Receipt component + shareable links
 - [x] Transaction history
+- [x] Dark/Light mode
+- [x] Loading/error states
+- [x] Supabase backend (claims, resolution)
+- [x] Move contract (escrow tracking)
 - [ ] zkLogin for walletless recipients
 - [ ] PDF receipt download
+- [ ] Email/SMS notifications
 - [ ] Mainnet deployment
 - [ ] Merchant tools
 
@@ -139,4 +158,4 @@ The Move contract (`contracts/droplet_vault/`) implements:
 
 ## License
 
-MIT © 2024
+MIT © 2026

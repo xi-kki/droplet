@@ -1,406 +1,356 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useCurrentAccount, useSignTransaction } from "@mysten/dapp-kit";
+import { useSignAndExecuteTransaction, useCurrentAccount } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RecipientInput } from "@/components/recipient-input";
-import { resolveRecipient } from "@/lib/resolution";
-import { suiToMist, getClaimUrl, detectRecipientType } from "@/lib/utils";
-import { DROPLET_PACKAGE_ID, SUI_COIN_TYPE } from "@/lib/sui-networks";
+import { resolveRecipient, ResolutionError } from "@/lib/resolution";
+import { createClaim } from "@/lib/supabase";
+import { suiToMist, formatAmount, getClaimUrl } from "@/lib/utils";
 import {
   Send,
   Loader2,
-  CheckCircle2,
+  Check,
   Copy,
   ExternalLink,
+  AlertTriangle,
   Droplets,
-  AlertCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { cn } from "@/lib/utils";
+import type { ResolvedRecipient, ReceiptData } from "@/types";
 
-const client = new SuiClient({ url: getFullnodeUrl("testnet") });
-
-type SendState =
-  | "idle"
-  | "resolving"
-  | "confirming"
-  | "sending"
-  | "success"
-  | "error";
-
-const HIGH_VALUE_THRESHOLD = 50; // SUI
-
-interface SendResult {
-  txDigest: string;
-  claimUrl: string;
-  recipientName: string;
-  amount: string;
+interface SendState {
+  phase: "idle" | "resolving" | "confirming" | "sending" | "success" | "error";
+  recipient?: ResolvedRecipient;
+  amount?: string;
+  txDigest?: string;
+  error?: string;
+  claimUrl?: string;
 }
 
 export function SendForm() {
   const currentAccount = useCurrentAccount();
-  const { mutateAsync: signTransaction } = useSignTransaction();
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
-  const [recipient, setRecipient] = useState("");
+  const [recipientInput, setRecipientInput] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  const [state, setState] = useState<SendState>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SendResult | null>(null);
+  const [sendState, setSendState] = useState<SendState>({ phase: "idle" });
   const [copied, setCopied] = useState(false);
 
-  const resetForm = () => {
-    setRecipient("");
+  const reset = () => {
+    setRecipientInput("");
     setAmount("");
     setNote("");
-    setState("idle");
-    setError(null);
-    setResult(null);
+    setSendState({ phase: "idle" });
   };
 
   const handleSend = useCallback(async () => {
     if (!currentAccount) {
-      setError("Please connect your wallet first");
-      setState("error");
+      setSendState({ phase: "error", error: "Please connect your wallet first" });
       return;
     }
 
-    if (!recipient.trim()) {
-      setError("Please enter a recipient");
-      setState("error");
+    // Validate amount
+    const amountSui = parseFloat(amount);
+    if (isNaN(amountSui) || amountSui <= 0) {
+      setSendState({ phase: "error", error: "Please enter a valid amount" });
       return;
     }
 
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      setError("Please enter a valid amount greater than 0");
-      setState("error");
-      return;
-    }
+    const amountMist = suiToMist(amountSui);
 
-    if (amountNum > 1000) {
-      setError("Maximum send is 1,000 SUI per transaction");
-      setState("error");
-      return;
-    }
-
-    // High-value confirmation
-    if (amountNum >= HIGH_VALUE_THRESHOLD && state !== "confirming") {
-      setState("confirming");
-      return;
-    }
-
+    // Step 1: Resolve recipient
+    setSendState({ phase: "resolving" });
     try {
-      // Step 1: Resolve recipient
-      setState("resolving");
-      const resolved = await resolveRecipient(recipient);
+      const resolved = await resolveRecipient(recipientInput, currentAccount.address);
 
-      // Step 2: Build and sign transaction
-      setState("sending");
+      // High-value confirmation
+      if (amountSui > 50) {
+        setSendState({
+          phase: "confirming",
+          recipient: resolved,
+          amount: amount,
+        });
+        return;
+      }
 
-      const txb = new Transaction();
-      const amountMist = suiToMist(amountNum);
-
-      // Split coins from the sender's SUI coins
-      const [coin] = txb.splitCoins(txb.gas, [amountMist]);
-
-      // Transfer to resolved address
-      txb.transferObjects([coin], resolved.suiAddress);
-
-      // Set gas budget
-      txb.setGasBudget(100_000_000);
-
-      // Sign transaction
-      const { bytes, signature } = await signTransaction({
-        transaction: txb,
-        chain: "sui:testnet",
-      });
-
-      // Execute on chain
-      const txResult = await client.executeTransaction({
-        transaction: bytes,
-        signature,
-        options: {
-          showEffects: true,
-          showEvents: true,
-        },
-      });
-
-      const digest = txResult.digest;
-
-      // Step 3: Generate claim URL
-      const claimUrl = getClaimUrl(digest);
-
-      // Step 4: Success!
-      setState("success");
-      setResult({
-        txDigest: digest,
-        claimUrl,
-        recipientName: resolved.displayName,
-        amount: amountNum.toFixed(4),
-      });
-    } catch (err: any) {
-      setState("error");
-      const msg = err?.message || "";
-      if (msg.includes("User rejected") || msg.includes("denied")) {
-        setError("Transaction cancelled by user");
-      } else if (msg.includes("insufficient")) {
-        setError("Insufficient SUI balance for this transaction");
-      } else if (msg.includes("timeout") || msg.includes("TIMEOUT")) {
-        setError("Transaction timed out — please try again");
+      // Step 2: Execute transaction
+      await executeTransaction(resolved, amountMist, amountSui);
+    } catch (error) {
+      if (error instanceof ResolutionError) {
+        setSendState({ phase: "error", error: error.message });
       } else {
-        setError("Transaction failed. Please try again.");
+        setSendState({ phase: "error", error: "Something went wrong. Please try again." });
       }
     }
-  }, [currentAccount, recipient, amount, signTransaction, state]);
+  }, [currentAccount, recipientInput, amount, note]);
 
-  const copyClaimLink = () => {
-    if (result?.claimUrl) {
-      navigator.clipboard.writeText(result.claimUrl);
+  const executeTransaction = async (
+    recipient: ResolvedRecipient,
+    amountMist: bigint,
+    amountSui: number
+  ) => {
+    if (!currentAccount) return;
+
+    setSendState({ phase: "sending", recipient, amount: amount });
+
+    try {
+      const tx = new Transaction();
+
+      // Split coins for the payment
+      const [coin] = tx.splitCoins(tx.gas, [amountMist]);
+
+      // Transfer to recipient
+      tx.transferObjects([coin], recipient.suiAddress);
+
+      // Set gas budget
+      tx.setGasBudget(10_000_000);
+
+      // Sign and execute
+      const result = await signAndExecute({ transaction: tx });
+
+      const txDigest = result.digest;
+
+      // Store claim in Supabase if email/phone recipient
+      let claimUrl: string | undefined;
+      if (recipient.type === "email" || recipient.type === "phone") {
+        try {
+          const claimToken = await createClaim({
+            senderAddress: currentAccount.address,
+            recipientIdentifier: recipient.input,
+            recipientType: recipient.type,
+            resolvedAddress: recipient.suiAddress,
+            amountMist: amountMist.toString(),
+            txDigest,
+            note: note || undefined,
+          });
+          claimUrl = getClaimUrl(claimToken);
+        } catch (err) {
+          console.warn("Failed to create claim record:", err);
+          // Non-blocking — tx still succeeded on-chain
+        }
+      }
+
+      setSendState({
+        phase: "success",
+        recipient,
+        amount: amount,
+        txDigest,
+        claimUrl,
+      });
+    } catch (error: any) {
+      const message =
+        error?.message?.includes("User rejected")
+          ? "Transaction cancelled"
+          : error?.message || "Transaction failed. Please try again.";
+      setSendState({ phase: "error", error: message });
+    }
+  };
+
+  const confirmHighValue = async () => {
+    if (!sendState.recipient || !sendState.amount) return;
+    const amountMist = suiToMist(parseFloat(sendState.amount));
+    await executeTransaction(sendState.recipient, amountMist, parseFloat(sendState.amount));
+  };
+
+  const copyClaimUrl = () => {
+    if (sendState.claimUrl) {
+      navigator.clipboard.writeText(sendState.claimUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  // CONFIRMATION STATE (high-value)
-  if (state === "confirming") {
+  // ─── Success State ─────────────────────────────────────────────
+  if (sendState.phase === "success") {
     return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="p-6 space-y-6"
-      >
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/10 flex items-center justify-center">
-            <AlertCircle className="h-8 w-8 text-yellow-500" />
+      <CardContent className="pt-6">
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", stiffness: 200, damping: 15 }}
+          className="text-center py-6"
+        >
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-green-500/10 flex items-center justify-center">
+            <Check className="h-10 w-10 text-green-500" />
           </div>
-          <h3 className="text-xl font-bold mb-2">Confirm high-value send</h3>
-          <p className="text-muted-foreground">
-            You&apos;re about to send <strong>{parseFloat(amount).toFixed(4)} SUI</strong> to <strong>{recipient}</strong>
+          <h3 className="text-xl font-bold mb-2">Droplet Sent! 💧</h3>
+          <p className="text-2xl font-bold text-droplet-500 mb-1">
+            {formatAmount(suiToMist(parseFloat(sendState.amount || "0")))} SUI
           </p>
-          <p className="text-xs text-yellow-500 mt-2">
-            This transaction cannot be undone. Please verify the recipient is correct.
+          <p className="text-sm text-muted-foreground mb-6">
+            to {sendState.recipient?.displayName}
           </p>
-        </div>
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={() => setState("idle")}
-          >
-            Cancel
-          </Button>
-          <Button
-            className="flex-1"
-            onClick={() => handleSend()}
-          >
-            Confirm Send
-          </Button>
-        </div>
-      </motion.div>
+
+          {/* Claim link (for email/phone recipients) */}
+          {sendState.claimUrl && (
+            <div className="mb-4 p-3 rounded-lg bg-droplet-500/5 border border-droplet-500/20">
+              <p className="text-xs text-muted-foreground mb-2">Share this claim link:</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs bg-muted px-2 py-1 rounded truncate">
+                  {sendState.claimUrl}
+                </code>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={copyClaimUrl}>
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            {sendState.txDigest && (
+              <a
+                href={`https://suiscan.xyz/testnet/tx/${sendState.txDigest}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border text-sm font-medium hover:bg-accent transition-colors"
+              >
+                <ExternalLink className="h-4 w-4" />
+                View on Explorer
+              </a>
+            )}
+            <Button variant="outline" onClick={reset} className="flex-1">
+              Send Another
+            </Button>
+          </div>
+        </motion.div>
+      </CardContent>
     );
   }
 
-  // SUCCESS STATE
-  if (state === "success" && result) {
+  // ─── High-Value Confirmation ───────────────────────────────────
+  if (sendState.phase === "confirming") {
     return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="p-6 space-y-6"
-      >
-        <div className="text-center">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: "spring", stiffness: 200, delay: 0.1 }}
-          >
-            <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
-          </motion.div>
-          <h3 className="text-xl font-bold mb-2">Droplet sent! 💧</h3>
-          <p className="text-muted-foreground">
-            {result.amount} SUI → {result.recipientName}
+      <CardContent className="pt-6">
+        <div className="text-center py-4">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/10 flex items-center justify-center">
+            <AlertTriangle className="h-8 w-8 text-yellow-500" />
+          </div>
+          <h3 className="text-lg font-bold mb-2">High-Value Transfer</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            You&apos;re about to send{" "}
+            <span className="font-bold text-foreground">
+              {formatAmount(suiToMist(parseFloat(sendState.amount || "0")))} SUI
+            </span>{" "}
+            to{" "}
+            <span className="font-bold text-foreground">
+              {sendState.recipient?.displayName}
+            </span>
           </p>
-        </div>
-
-        {/* Claim Link */}
-        <div className="bg-muted/50 rounded-xl p-4">
-          <p className="text-xs text-muted-foreground mb-2">
-            Share this claim link with your recipient:
+          <p className="text-xs text-muted-foreground mb-6">
+            This transfer cannot be undone. Please confirm.
           </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs bg-background rounded-lg px-3 py-2 truncate border">
-              {result.claimUrl}
-            </code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={copyClaimLink}
-              className="shrink-0"
-            >
-              {copied ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={reset} className="flex-1">
+              Cancel
+            </Button>
+            <Button onClick={confirmHighValue} className="flex-1 bg-droplet-600 hover:bg-droplet-700">
+              Confirm Send
             </Button>
           </div>
         </div>
-
-        {/* TX Link */}
-        <a
-          href={`https://suiscan.xyz/testnet/tx/${result.txDigest}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 text-sm text-droplet-500 hover:underline"
-        >
-          View on Sui Explorer
-          <ExternalLink className="h-3 w-3" />
-        </a>
-
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={resetForm}
-        >
-          Send another Droplet
-        </Button>
-      </motion.div>
+      </CardContent>
     );
   }
 
-  // MAIN FORM
-  return (
-    <div className="p-6 space-y-5">
-      {/* Recipient */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Recipient</label>
-        <RecipientInput
-          value={recipient}
-          onChange={setRecipient}
-          disabled={state === "resolving" || state === "sending"}
-        />
-      </div>
-
-      {/* Amount */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Amount (SUI)</label>
-        <div className="relative">
-          <Input
-            type="number"
-            placeholder="0.00"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            disabled={state === "resolving" || state === "sending"}
-            min="0"
-            step="0.01"
-            className="text-lg font-semibold h-14 pr-12"
-          />
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <span className="text-sm font-medium text-muted-foreground">
-              SUI
-            </span>
+  // ─── Error State ───────────────────────────────────────────────
+  if (sendState.phase === "error") {
+    return (
+      <CardContent className="pt-6">
+        <div className="text-center py-4">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+            <span className="text-2xl">😵</span>
           </div>
+          <h3 className="text-lg font-bold mb-2">Transaction Failed</h3>
+          <p className="text-sm text-muted-foreground mb-6">{sendState.error}</p>
+          <Button onClick={reset} className="w-full bg-droplet-600 hover:bg-droplet-700">
+            Try Again
+          </Button>
         </div>
-        {/* Quick amounts */}
-        <div className="flex gap-2">
-          {[0.1, 0.5, 1, 5].map((val) => (
-            <button
-              key={val}
-              type="button"
-              onClick={() => setAmount(val.toString())}
-              disabled={state === "resolving" || state === "sending"}
-              className={cn(
-                "flex-1 py-1.5 rounded-lg border text-sm font-medium transition-colors",
-                amount === val.toString()
-                  ? "bg-droplet-600 text-white border-droplet-600"
-                  : "bg-muted hover:bg-accent"
-              )}
-            >
-              {val}
-            </button>
-          ))}
+      </CardContent>
+    );
+  }
+
+  // ─── Idle / Sending Form ───────────────────────────────────────
+  const isSending = sendState.phase === "sending" || sendState.phase === "resolving";
+
+  return (
+    <>
+      <CardContent className="pt-4 space-y-4">
+        {/* Recipient */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">To</label>
+          <RecipientInput
+            value={recipientInput}
+            onChange={setRecipientInput}
+            disabled={isSending}
+          />
         </div>
-      </div>
 
-      {/* Note (optional) */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">
-          Note <span className="text-muted-foreground">(optional)</span>
-        </label>
-        <Input
-          placeholder="What's this for?"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          disabled={state === "resolving" || state === "sending"}
-          maxLength={100}
-        />
-      </div>
+        {/* Amount */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Amount (SUI)</label>
+          <div className="relative">
+            <Input
+              type="number"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={isSending}
+              min="0"
+              step="0.01"
+              className="text-lg font-bold pr-12"
+            />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-sm text-muted-foreground">
+              <Droplets className="h-4 w-4" />
+              SUI
+            </div>
+          </div>
+          {amount && parseFloat(amount) > 50 && (
+            <p className="text-xs text-yellow-500 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              High-value transfer will require confirmation
+            </p>
+          )}
+        </div>
 
-      {/* Error */}
-      <AnimatePresence>
-        {state === "error" && error && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="flex items-center gap-2 text-sm text-red-500 bg-red-500/10 rounded-lg p-3"
-          >
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span className="flex-1">{error}</span>
-            <button
-              onClick={() => setState("idle")}
-              className="text-xs underline hover:no-underline"
-            >
-              Retry
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        {/* Note (optional) */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">
+            Note <span className="text-xs">(optional)</span>
+          </label>
+          <Input
+            placeholder="What's this for?"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            disabled={isSending}
+          />
+        </div>
+      </CardContent>
 
-      {/* Submit */}
-      <Button
-        onClick={handleSend}
-        disabled={
-          !currentAccount ||
-          !recipient.trim() ||
-          !amount ||
-          state === "resolving" ||
-          state === "sending"
-        }
-        className="w-full h-14 text-base"
-        size="lg"
-      >
-        {state === "resolving" ? (
-          <>
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            Resolving recipient...
-          </>
-        ) : state === "sending" ? (
-          <>
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            Sending...
-          </>
-        ) : !currentAccount ? (
-          "Connect wallet to send"
-        ) : (
-          <>
-            <Send className="mr-2 h-5 w-5" />
-            Send Droplet
-          </>
-        )}
-      </Button>
-
-      {/* Wallet not connected hint */}
-      {!currentAccount && (
-        <p className="text-xs text-center text-muted-foreground">
-          Connect your Sui wallet in the top right to get started
-        </p>
-      )}
-    </div>
+      <CardFooter className="pt-0">
+        <Button
+          onClick={handleSend}
+          disabled={isSending || !recipientInput || !amount}
+          className="w-full h-12 text-base font-semibold bg-droplet-600 hover:bg-droplet-700"
+        >
+          {isSending ? (
+            <>
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              {sendState.phase === "resolving" ? "Resolving..." : "Sending..."}
+            </>
+          ) : (
+            <>
+              <Send className="mr-2 h-5 w-5" />
+              Send Droplet
+            </>
+          )}
+        </Button>
+      </CardFooter>
+    </>
   );
 }

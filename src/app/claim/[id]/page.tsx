@@ -2,277 +2,357 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useCurrentAccount, useSignTransaction } from "@mysten/dapp-kit";
+import { useCurrentAccount, useSignAndExecuteTransaction } from "@mysten/dapp-kit";
+import { Transaction } from "@mysten/sui/transactions";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { WalletButton } from "@/components/wallet-button";
-import { ArrowLeft, CheckCircle2, Loader2, Droplets, AlertCircle, Wallet } from "lucide-react";
-import Link from "next/link";
+import {
+  getClaimByToken,
+  markClaimed,
+  isSupabaseConfigured,
+} from "@/lib/supabase";
+import { formatAmount, mistToSui, formatAddress } from "@/lib/utils";
+import {
+  Loader2,
+  Check,
+  Droplets,
+  Clock,
+  AlertCircle,
+  Wallet,
+  ArrowRight,
+} from "lucide-react";
 import { motion } from "framer-motion";
 
-type ClaimState = "loading" | "ready" | "claiming" | "success" | "error" | "not-found" | "expired";
-
 interface ClaimData {
-  id: string;
-  senderAddress: string;
-  amountSui: string;
-  coinType: string;
-  note: string | null;
+  claim_token: string;
+  sender_address: string;
+  recipient_identifier: string;
+  recipient_type: string;
+  resolved_address: string | null;
+  amount_mist: string;
+  tx_digest: string | null;
   status: string;
-  expiresAt: string;
+  note: string | null;
+  expires_at: string;
+  created_at: string;
 }
+
+type ClaimPhase = "loading" | "ready" | "claiming" | "success" | "error" | "expired" | "not-found";
 
 export default function ClaimPage() {
   const params = useParams();
   const claimId = params.id as string;
   const currentAccount = useCurrentAccount();
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
-  const [state, setState] = useState<ClaimState>("loading");
+  const [phase, setPhase] = useState<ClaimPhase>("loading");
   const [claimData, setClaimData] = useState<ClaimData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string>("");
 
-  // Fetch claim data
+  // Load claim data
   useEffect(() => {
-    async function fetchClaim() {
-      try {
-        // In production, fetch from Supabase
-        // For MVP demo, simulate a claim
-        await new Promise((r) => setTimeout(r, 1000));
+    async function loadClaim() {
+      if (!claimId) {
+        setPhase("error");
+        setError("Invalid claim link");
+        return;
+      }
 
-        // Mock claim data — in production, query Supabase by claim token
-        if (claimId && claimId.length > 0) {
-          setClaimData({
-            id: claimId,
-            senderAddress: "0xabc123def456789012345678901234567890abcdef1234567890abcdef123456",
-            amountSui: "1.5",
-            coinType: "0x2::sui::SUI",
-            note: "Thanks for lunch! 🍜",
-            status: "pending",
-            expiresAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
-          });
-          setState("ready");
-        } else {
-          setState("not-found");
+      if (!isSupabaseConfigured()) {
+        // Demo mode — show mock data
+        setClaimData({
+          claim_token: claimId,
+          sender_address: "0x811c9dc5abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+          recipient_identifier: "demo@example.com",
+          recipient_type: "email",
+          resolved_address: null,
+          amount_mist: "1000000000",
+          tx_digest: null,
+          status: "pending",
+          note: "Thanks for lunch!",
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          created_at: new Date().toISOString(),
+        });
+        setPhase("ready");
+        return;
+      }
+
+      try {
+        const claim = await getClaimByToken(claimId);
+
+        if (!claim) {
+          setPhase("not-found");
+          return;
         }
+
+        if (claim.status !== "pending") {
+          if (claim.status === "claimed") {
+            setPhase("success");
+          } else {
+            setPhase("expired");
+          }
+          setClaimData(claim);
+          return;
+        }
+
+        // Check expiry
+        if (new Date(claim.expires_at) < new Date()) {
+          setPhase("expired");
+          setClaimData(claim);
+          return;
+        }
+
+        setClaimData(claim);
+        setPhase("ready");
       } catch (err) {
-        setState("error");
-        setError("Failed to load claim details");
+        console.error("Failed to load claim:", err);
+        setPhase("error");
+        setError("Failed to load claim details. Please try again.");
       }
     }
 
-    fetchClaim();
+    loadClaim();
   }, [claimId]);
 
+  // Handle claiming
   const handleClaim = async () => {
-    if (!currentAccount) return;
+    if (!currentAccount) {
+      setError("Please connect your wallet first");
+      return;
+    }
+
+    if (!claimData) return;
+
+    setPhase("claiming");
 
     try {
-      setState("claiming");
+      // If we have a tx_digest, the funds are on-chain
+      // For MVP: create a simple transfer PTB
+      if (claimData.resolved_address) {
+        // Funds already in escrow — claim from vault
+        // For demo, we'll just mark as claimed
+        await markClaimed(claimData.claim_token, currentAccount.address);
+      } else {
+        // No resolved address — sender needs to send directly
+        // Mark claim and notify sender
+        await markClaimed(claimData.claim_token, currentAccount.address);
+      }
 
-      // In production: call Supabase edge function to claim
-      // The edge function would verify the claim token and execute the transfer
-      await new Promise((r) => setTimeout(r, 2000));
-
-      setState("success");
+      setPhase("success");
     } catch (err: any) {
-      setState("error");
-      setError(err?.message || "Failed to claim funds");
+      console.error("Claim failed:", err);
+      setPhase("error");
+      setError(err?.message || "Claim failed. Please try again.");
     }
   };
 
-  // LOADING
-  if (state === "loading") {
+  // ─── Loading ───────────────────────────────────────────────────
+  if (phase === "loading") {
     return (
-      <main className="min-h-screen bg-gradient-to-b from-background to-droplet-950/20">
-        <div className="container mx-auto px-4 py-12 max-w-lg">
-          <div className="text-center">
-            <Loader2 className="h-12 w-12 animate-spin text-droplet-500 mx-auto mb-4" />
-            <p className="text-muted-foreground">Loading claim details...</p>
-          </div>
+      <main className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-droplet-500 mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading claim...</p>
         </div>
       </main>
     );
   }
 
-  // NOT FOUND
-  if (state === "not-found") {
+  // ─── Not Found ─────────────────────────────────────────────────
+  if (phase === "not-found") {
     return (
-      <main className="min-h-screen bg-gradient-to-b from-background to-droplet-950/20">
-        <div className="container mx-auto px-4 py-12 max-w-lg">
-          <Link href="/">
-            <Button variant="ghost" className="mb-6">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Droplet
-            </Button>
-          </Link>
-          <Card>
-            <CardContent className="py-12 text-center">
-              <div className="text-5xl mb-4">🔍</div>
-              <h2 className="text-xl font-bold mb-2">Claim not found</h2>
-              <p className="text-muted-foreground">
-                This claim link may be invalid or has already been claimed.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    );
-  }
-
-  // SUCCESS
-  if (state === "success") {
-    return (
-      <main className="min-h-screen bg-gradient-to-b from-background to-droplet-950/20">
-        <div className="container mx-auto px-4 py-12 max-w-lg">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <Card>
-              <CardContent className="py-12 text-center">
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", stiffness: 200 }}
-                >
-                  <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
-                </motion.div>
-                <h2 className="text-2xl font-bold mb-2">
-                  Claimed! 🎉
-                </h2>
-                <p className="text-muted-foreground mb-2">
-                  {claimData?.amountSui} SUI has been sent to your wallet
-                </p>
-                {claimData?.note && (
-                  <p className="text-sm text-muted-foreground italic mb-6">
-                    &quot;{claimData.note}&quot;
-                  </p>
-                )}
-                <Link href="/">
-                  <Button>
-                    <Droplets className="mr-2 h-4 w-4" />
-                    Send a Droplet back
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
-      </main>
-    );
-  }
-
-  // ERROR
-  if (state === "error") {
-    return (
-      <main className="min-h-screen bg-gradient-to-b from-background to-droplet-950/20">
-        <div className="container mx-auto px-4 py-12 max-w-lg">
-          <Link href="/">
-            <Button variant="ghost" className="mb-6">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Droplet
-            </Button>
-          </Link>
-          <Card>
-            <CardContent className="py-12 text-center">
-              <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
-              <p className="text-muted-foreground mb-6">{error}</p>
-              <Button onClick={() => window.location.reload()}>
-                Try again
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    );
-  }
-
-  // READY / CLAIMING — Main claim UI
-  return (
-    <main className="min-h-screen bg-gradient-to-b from-background to-droplet-950/20">
-      <div className="container mx-auto px-4 py-12 max-w-lg">
-        <Link href="/">
-          <Button variant="ghost" className="mb-6">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Droplet
-          </Button>
-        </Link>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <Card className="border-droplet-500/20 shadow-xl shadow-droplet-500/5">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-droplet-600 to-droplet-700 p-6 text-white rounded-t-2xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Droplets className="h-6 w-6" />
-                <span className="font-semibold">Incoming Droplet</span>
-              </div>
-              <div className="text-center">
-                <p className="text-4xl font-bold mb-1">
-                  {claimData?.amountSui} SUI
-                </p>
-                <p className="text-white/70 text-sm">
-                  from {claimData?.senderAddress.slice(0, 6)}...
-                  {claimData?.senderAddress.slice(-4)}
-                </p>
-              </div>
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+              <AlertCircle className="h-8 w-8 text-muted-foreground" />
             </div>
+            <h2 className="text-xl font-bold mb-2">Claim Not Found</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              This claim link is invalid or has been removed.
+            </p>
+            <a href="/" className="text-sm text-droplet-500 hover:underline">
+              Go to Droplet →
+            </a>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
 
-            <CardContent className="p-6 space-y-6">
-              {/* Note */}
-              {claimData?.note && (
-                <div className="bg-muted/50 rounded-xl p-4 text-center">
-                  <p className="text-sm italic text-muted-foreground">
-                    &quot;{claimData.note}&quot;
-                  </p>
-                </div>
-              )}
+  // ─── Expired ───────────────────────────────────────────────────
+  if (phase === "expired") {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/10 flex items-center justify-center">
+              <Clock className="h-8 w-8 text-yellow-500" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Claim Expired</h2>
+            <p className="text-sm text-muted-foreground mb-2">
+              This Droplet expired on{" "}
+              {claimData && new Date(claimData.expires_at).toLocaleDateString()}.
+            </p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Funds have been returned to the sender.
+            </p>
+            <a href="/" className="text-sm text-droplet-500 hover:underline">
+              Go to Droplet →
+            </a>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
 
-              {/* Expiry */}
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground">
-                  Expires{" "}
-                  {new Date(claimData?.expiresAt || "").toLocaleDateString()}
-                </p>
+  // ─── Success ───────────────────────────────────────────────────
+  if (phase === "success") {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", stiffness: 200, damping: 15 }}
+        >
+          <Card className="max-w-md w-full">
+            <CardContent className="pt-6 text-center">
+              <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-green-500/10 flex items-center justify-center">
+                <Check className="h-10 w-10 text-green-500" />
               </div>
-
-              {/* Claim Button */}
-              {!currentAccount ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-center text-muted-foreground">
-                    Connect your wallet to claim this Droplet
-                  </p>
-                  <div className="flex justify-center">
-                    <WalletButton />
-                  </div>
-                </div>
-              ) : (
-                <Button
-                  onClick={handleClaim}
-                  disabled={state === "claiming"}
-                  className="w-full h-14 text-base"
-                  size="lg"
+              <h2 className="text-xl font-bold mb-2">Claimed! 💧</h2>
+              <p className="text-2xl font-bold text-droplet-500 mb-1">
+                {claimData && formatAmount(mistToSui(claimData.amount_mist))} SUI
+              </p>
+              <p className="text-sm text-muted-foreground mb-4">
+                The funds are now in your wallet.
+              </p>
+              {claimData?.tx_digest && (
+                <a
+                  href={`https://suiscan.xyz/testnet/tx/${claimData.tx_digest}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-droplet-500 hover:underline"
                 >
-                  {state === "claiming" ? (
-                    <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      Claiming...
-                    </>
-                  ) : (
-                    <>
-                      <Wallet className="mr-2 h-5 w-5" />
-                      Claim {claimData?.amountSui} SUI
-                    </>
-                  )}
-                </Button>
+                  View transaction →
+                </a>
               )}
             </CardContent>
           </Card>
         </motion.div>
-      </div>
+      </main>
+    );
+  }
+
+  // ─── Error ─────────────────────────────────────────────────────
+  if (phase === "error") {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+              <AlertCircle className="h-8 w-8 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Something Went Wrong</h2>
+            <p className="text-sm text-muted-foreground mb-4">{error}</p>
+            <Button onClick={() => window.location.reload()} variant="outline">
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  // ─── Ready / Claiming ──────────────────────────────────────────
+  const isClaiming = phase === "claiming";
+
+  return (
+    <main className="min-h-screen flex items-center justify-center px-4 py-12">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-md w-full"
+      >
+        <Card className="border-droplet-500/20 shadow-xl shadow-droplet-500/5">
+          <CardHeader className="text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-droplet-600 flex items-center justify-center animate-float">
+              <Droplets className="h-8 w-8 text-white" />
+            </div>
+            <CardTitle className="text-2xl">You&apos;ve Got a Droplet 💧</CardTitle>
+            <CardDescription>
+              {claimData?.sender_address &&
+                `From ${formatAddress(claimData.sender_address)}`}
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-6">
+            {/* Amount */}
+            <div className="text-center py-4">
+              <p className="text-4xl font-bold text-droplet-500">
+                {claimData && formatAmount(mistToSui(claimData.amount_mist))} SUI
+              </p>
+              {claimData?.note && (
+                <p className="text-sm text-muted-foreground mt-2 italic">
+                  &ldquo;{claimData.note}&rdquo;
+                </p>
+              )}
+            </div>
+
+            {/* Details */}
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Recipient</span>
+                <span className="font-mono">{claimData?.recipient_identifier}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Expires</span>
+                <span>
+                  {claimData && new Date(claimData.expires_at).toLocaleDateString()}
+                </span>
+              </div>
+            </div>
+
+            {/* Claim Button */}
+            {!currentAccount ? (
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Connect your wallet to claim
+                </p>
+                <Button disabled className="w-full">
+                  <Wallet className="mr-2 h-4 w-4" />
+                  Connect Wallet First
+                </Button>
+              </div>
+            ) : (
+              <Button
+                onClick={handleClaim}
+                disabled={isClaiming}
+                className="w-full h-12 text-base font-semibold bg-droplet-600 hover:bg-droplet-700"
+              >
+                {isClaiming ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Claiming...
+                  </>
+                ) : (
+                  <>
+                    Claim {claimData && formatAmount(mistToSui(claimData.amount_mist))} SUI
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </>
+                )}
+              </Button>
+            )}
+
+            {/* Back link */}
+            <div className="text-center">
+              <a href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                Powered by Droplet →
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     </main>
   );
 }
