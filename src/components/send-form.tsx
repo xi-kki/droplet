@@ -114,8 +114,8 @@ export function SendForm() {
       // Set gas budget
       txb.setGasBudget(100_000_000);
 
-      // Sign and execute
-      const { bytes, signature, digest } = await signTransaction({
+      // Sign transaction
+      const { bytes, signature } = await signTransaction({
         transaction: txb,
         chain: "sui:testnet",
       });
@@ -129,6 +129,8 @@ export function SendForm() {
           showEvents: true,
         },
       });
+
+      const digest = txResult.digest;
 
       // Step 3: Generate claim URL
       const claimUrl = getClaimUrl(digest);
@@ -154,7 +156,7 @@ export function SendForm() {
         setError("Transaction failed. Please try again.");
       }
     }
-  }, [currentAccount, recipient, amount, note, signTransaction, state]);
+  }, [currentAccount, recipient, amount, signTransaction, state]);
 
   const copyClaimLink = () => {
     if (result?.claimUrl) {
