@@ -23,8 +23,8 @@ export function suiToMist(sui: number): bigint {
 }
 
 /** Format SUI amount for display */
-export function formatAmount(mist: string | number, decimals = 4): string {
-  const sui = mistToSui(mist);
+export function formatAmount(mist: string | number | bigint, decimals = 4): string {
+  const sui = Number(mist) / 1_000_000_000;
   return sui.toFixed(decimals);
 }
 

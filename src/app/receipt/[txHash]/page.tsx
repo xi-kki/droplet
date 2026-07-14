@@ -60,7 +60,7 @@ export default function ReceiptPage() {
         for (const change of balanceChanges) {
           if (change.coinType === "0x2::sui::SUI") {
             const amount = BigInt(change.amount || "0");
-            if (amount > 0n && change.address !== senderAddress) {
+            if (amount > BigInt(0) && change.address !== senderAddress) {
               recipientAddress = change.address;
               amountMist = amount.toString();
             }

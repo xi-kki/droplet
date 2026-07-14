@@ -38,7 +38,7 @@ export function TransactionHistory() {
     try {
       // Fetch recent transactions from the chain
       const response = await client.queryTransactionBlocks({
-        sender: currentAccount.address,
+        filter: { FromAddress: currentAccount.address },
         limit: 20,
         order: "descending",
       });
@@ -59,7 +59,7 @@ export function TransactionHistory() {
               recipientAddress = change.address;
               // Positive balance change for recipient = amount sent
               const amount = BigInt(change.amount || "0");
-              if (amount > 0n) {
+              if (amount > BigInt(0)) {
                 amountMist = amount.toString();
               }
             }

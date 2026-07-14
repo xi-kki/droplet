@@ -48,48 +48,7 @@ export function SendForm() {
     setSendState({ phase: "idle" });
   };
 
-  const handleSend = useCallback(async () => {
-    if (!currentAccount) {
-      setSendState({ phase: "error", error: "Please connect your wallet first" });
-      return;
-    }
-
-    // Validate amount
-    const amountSui = parseFloat(amount);
-    if (isNaN(amountSui) || amountSui <= 0) {
-      setSendState({ phase: "error", error: "Please enter a valid amount" });
-      return;
-    }
-
-    const amountMist = suiToMist(amountSui);
-
-    // Step 1: Resolve recipient
-    setSendState({ phase: "resolving" });
-    try {
-      const resolved = await resolveRecipient(recipientInput, currentAccount.address);
-
-      // High-value confirmation
-      if (amountSui > 50) {
-        setSendState({
-          phase: "confirming",
-          recipient: resolved,
-          amount: amount,
-        });
-        return;
-      }
-
-      // Step 2: Execute transaction
-      await executeTransaction(resolved, amountMist, amountSui);
-    } catch (error) {
-      if (error instanceof ResolutionError) {
-        setSendState({ phase: "error", error: error.message });
-      } else {
-        setSendState({ phase: "error", error: "Something went wrong. Please try again." });
-      }
-    }
-  }, [currentAccount, recipientInput, amount, note]);
-
-  const executeTransaction = async (
+  const executeTransaction = useCallback(async (
     recipient: ResolvedRecipient,
     amountMist: bigint,
     amountSui: number
@@ -149,7 +108,48 @@ export function SendForm() {
           : error?.message || "Transaction failed. Please try again.";
       setSendState({ phase: "error", error: message });
     }
-  };
+  }, [currentAccount, signAndExecute, note, amount]);
+
+  const handleSend = useCallback(async () => {
+    if (!currentAccount) {
+      setSendState({ phase: "error", error: "Please connect your wallet first" });
+      return;
+    }
+
+    // Validate amount
+    const amountSui = parseFloat(amount);
+    if (isNaN(amountSui) || amountSui <= 0) {
+      setSendState({ phase: "error", error: "Please enter a valid amount" });
+      return;
+    }
+
+    const amountMist = suiToMist(amountSui);
+
+    // Step 1: Resolve recipient
+    setSendState({ phase: "resolving" });
+    try {
+      const resolved = await resolveRecipient(recipientInput, currentAccount.address);
+
+      // High-value confirmation
+      if (amountSui > 50) {
+        setSendState({
+          phase: "confirming",
+          recipient: resolved,
+          amount: amount,
+        });
+        return;
+      }
+
+      // Step 2: Execute transaction
+      await executeTransaction(resolved, amountMist, amountSui);
+    } catch (error) {
+      if (error instanceof ResolutionError) {
+        setSendState({ phase: "error", error: error.message });
+      } else {
+        setSendState({ phase: "error", error: "Something went wrong. Please try again." });
+      }
+    }
+  }, [currentAccount, recipientInput, amount, executeTransaction]);
 
   const confirmHighValue = async () => {
     if (!sendState.recipient || !sendState.amount) return;
